@@ -371,10 +371,10 @@ Fully backward-compatible:
 
 ## Reference Implementation
 
-- Python SDK extension prototype: https://github.com/palmertron/python-sdk/tree/feature/toolset-versioning
-- End-to-end demo (server + pinning client): https://github.com/palmertron/mcp-toolset-example
+A reference implementation is required before this SEP can advance to Final, per SEP guidelines and [SEP-2484](./2484-conformance-tests-required-for-final-seps.md) expectations for protocol changes. That reference implementation is provided at the links below.
 
-A reference implementation is required before this SEP can advance to Final, per SEP guidelines and [SEP-2484](./2484-conformance-tests-required-for-final-seps.md) expectations for protocol changes.
+- **Python SDK** (`Toolsets` extension): [palmertron/python-sdk@feature/toolset-versioning](https://github.com/palmertron/python-sdk/tree/feature/toolset-versioning) — advertises `io.modelcontextprotocol/toolsets`, serves `toolsets/list`, filters pinned `tools/list` / `tools/call`, with coverage in `tests/server/test_toolsets.py`.
+- **E2E demo** (Streamable HTTP server + pinning clients): [palmertron/mcp-toolset-example](https://github.com/palmertron/mcp-toolset-example) — publishes concurrent `core-ops` versions (`1.0.0` / `1.1.0` / `2.0.0`); `client/verify.py` asserts pin membership and `tool_not_in_toolset` without an LLM; a CLI agent pins `core-ops@1.1.0` for interactive demos.
 
 ## Performance Implications
 
