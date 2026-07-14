@@ -371,10 +371,8 @@ Fully backward-compatible:
 
 ## Reference Implementation
 
-Placeholder pending prototype:
-
-- Python SDK extension prototype (feature branch): *to be linked*
-- End-to-end demo (server + pinning client): *to be linked*
+- Python SDK extension prototype: https://github.com/palmertron/python-sdk/tree/feature/toolset-versioning
+- End-to-end demo (server + pinning client): https://github.com/palmertron/mcp-toolset-example
 
 A reference implementation is required before this SEP can advance to Final, per SEP guidelines and [SEP-2484](./2484-conformance-tests-required-for-final-seps.md) expectations for protocol changes.
 
