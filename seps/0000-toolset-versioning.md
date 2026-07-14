@@ -11,7 +11,7 @@
 
 ## Abstract
 
-This SEP proposes an optional MCP extension that introduces **Toolsets**: named, SemVer-versioned, immutable capability surfaces. A Toolset is a fixed membership of tool names. Clients discover Toolsets via `toolsets/list` and pin a specific `(name, version)` on `tools/list` and `tools/call` requests.
+This SEP proposes an optional MCP extension that introduces **Toolsets**: named, semantically versioned, immutable capability surfaces. A Toolset is a fixed membership of tool names. Clients discover Toolsets via `toolsets/list` and pin a specific `(name, version)` on `tools/list` and `tools/call` requests.
 
 When a Toolset is pinned, the server returns only member tools from `tools/list` and rejects `tools/call` for tools outside that membership. This gives hosts a predictable contract for dynamic discovery without requiring per-tool semantic versioning or session-scoped state.
 
@@ -25,7 +25,7 @@ Many MCP hosts discover tools at runtime via `tools/list` and then let the model
 
 Separately, proposals for tool groups and tags ([SEP-1300](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1300), [SEP-2084](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2084)) were **rejected**. Those proposals primarily addressed discovery taxonomy and filter DSLs, not versioned pin contracts for production stability.
 
-What remains missing is a **standardized, pinable capability surface**: a discoverable, versioned bundle of tools that a client can request consistently. Without it:
+What remains missing is a **standardized, pinnable capability surface**: a discoverable, versioned bundle of tools that a client can request consistently. Without it:
 
 1. Hosts that rely on dynamic discovery cannot freeze the tool surface their agents reason over.
 2. Operators lack a simple, auditable declaration such as "this agent uses `core-ops@1.2.0`."
@@ -53,7 +53,7 @@ Clients and servers advertise support via the `extensions` map defined in [SEP-2
 
 No extension-specific settings are required for v1; an empty object indicates support.
 
-A client that wishes to pin Toolsets **MUST** advertise this extension. A server that exposes `toolsets/list` or honors Toolset parameters on `tools/list` / `tools/call` **MUST** advertise this extension.
+A client that wishes to pin Toolsets **MUST** advertise this extension in client capabilities at initialize. A server that exposes `toolsets/list` or honors Toolset parameters on `tools/list` / `tools/call` **MUST** advertise this extension in server capabilities. Advertising declares extension support; the pin itself is a separate per-request `toolset` parameter (see section on Toolset Selection below).
 
 Servers **MUST NOT** require this extension for basic tool use: omitting Toolset parameters **MUST** preserve today's full flat `tools/list` and unrestricted `tools/call` behavior (subject to ordinary authz).
 
@@ -115,10 +115,12 @@ interface Toolset {
 For a given `(name, version)`:
 
 1. The `tools` membership **MUST NOT** change after publication.
-2. The server **SHOULD** treat the member tools' names, `inputSchema`, and documented semantics as stable for the lifetime of that Toolset version.
-3. Breaking changes to membership or to a member tool's contract **MUST** be published as a **new** Toolset version. Servers **MAY** continue to serve prior versions concurrently.
+2. Servers **SHOULD NOT** change a member tool's wire contract for the lifetime of that Toolset version. A wire-contract change includes renaming the tool, changing `inputSchema` shape or requiredness in a way that invalidates existing valid arguments, or changing documented success semantics of the tool's result.
+3. Changing membership or a member tool's wire contract while retaining the same `(name, version)` **violates this extension's SemVer intent**. Such changes **MUST** be published as a **new** Toolset version: **MINOR** when only adding tools to the surface; **MAJOR** when removing tools or breaking contracts of existing members. Servers **MAY** continue to serve prior versions concurrently.
 
-#### SemVer rules for Toolset versions
+This extension does **not** require servers to host multiple implementations of the same tool name. Schema and semantics permanence is a **publication discipline** tied to Toolset versions, not a per-tool version registry. Hosts that need a cryptographic freeze of Toolset membership and member tool descriptors should consider a future content `digest` (see Open Questions).
+
+#### SemVer Rules for Toolset Versions
 
 These rules apply to the Toolset package, not to individual tools:
 
@@ -129,6 +131,16 @@ These rules apply to the Toolset package, not to individual tools:
 | Metadata-only changes (`title`, `description`, `status`, `deprecationDate`) on a **new** publication        | **PATCH** (preferred) or republish metadata carefully; published `(name, version)` fields other than advisory metadata **MUST NOT** mutate in place |
 
 Note: because published `(name, version)` pairs are immutable, servers typically mint a new PATCH/MINOR/MAJOR version rather than editing an existing one.
+
+#### Operational Guidance
+
+Servers that publish Toolsets take on a small operational contract beyond today's flat tool list:
+
+1. Servers **MAY** serve multiple versions of the same Toolset name concurrently. Clients select with an exact pin; the server does not resolve ranges in v1.
+2. Before removing a version from publication, servers **SHOULD** mark it `deprecated` and **MAY** set `deprecationDate` so hosts can migrate pins.
+3. Servers **MAY** later omit a `(name, version)` from `toolsets/list`. Clients still pinned to that pair then receive `unknown_toolset` on pinned `tools/list` / `tools/call`.
+4. This SEP does **not** require unbounded retention of every historical Toolset version. Retention and retirement are operator policy. Servers **SHOULD** document which versions they commit to keep available for consumers.
+5. Storage and replication of published membership records are implementation details; the normative requirement is only that a published `(name, version)` keep a fixed `tools` membership as long as it appears in the response from `toolsets/list`.
 
 ### Methods
 
@@ -168,7 +180,9 @@ interface ListToolsetsResult {
 
 Servers supporting this extension **MUST** implement `toolsets/list`.
 
-#### Toolset selection on `tools/list` and `tools/call`
+Result order is **unspecified** unless the server documents one. Servers **SHOULD** keep order stable across pages for a given filter set so pagination is deterministic. Servers **MAY** list newest SemVer first for a given `name`.
+
+#### Toolset Selection on `tools/list` and `tools/call`
 
 Selection is **per-request** (not session-scoped), consistent with [SEP-2567](./2567-sessionless-mcp.md). Clients pin by passing the same Toolset reference on discovery and invocation.
 
@@ -200,6 +214,8 @@ If `toolset` is present:
 
 - The server **MUST** verify that `(name, version)` exists.
 - The server **MUST** return only tools whose names are in that Toolset's `tools` membership.
+- If a membership name has no corresponding registered tool, the server **SHOULD** omit it from the pinned `tools/list` result rather than failing the whole list.
+- Membership filtering applies **before** pagination: any `cursor` for `tools/list` pages the filtered membership, consistent with other list methods.
 - If the Toolset is unknown, the server **MUST** return an error (see Error Handling).
 
 If `toolset` is absent, behavior is unchanged from core MCP.
@@ -222,7 +238,7 @@ Pinned `tools/list` responses **SHOULD** be cacheable under [SEP-2549](./2549-TT
 
 ### Error Handling
 
-This extension defines the following error conditions. Exact numeric codes **SHOULD** follow SDK/project conventions for extension errors; `data` **MUST** identify the extension and reason.
+This extension defines the following error conditions. `data` **MUST** identify the extension and a machine-readable `reason`. Exact numeric JSON-RPC `code` values **SHOULD** follow SDK/project conventions for extension errors until cross-SDK coordination exists (see Open Questions). Clients **SHOULD** key behavior on `data.reason` (and `data.extension`), not solely on `code`.
 
 | Condition                         | Meaning                                                                     | Suggested `data.reason` |
 | --------------------------------- | --------------------------------------------------------------------------- | ----------------------- |
@@ -248,7 +264,7 @@ Example:
 }
 ```
 
-### Non-goals (v1)
+### Non-Goals (v1)
 
 The following are explicitly out of scope for this SEP:
 
@@ -328,7 +344,7 @@ Toolsets are optional production-governance machinery. [SEP-2133](./2133-extensi
 
 Per-tool SemVer with caret/tilde resolution (SEP-1575) did not land and faced substantial review pushback: coupled tools, multi-version list ambiguity, and weak client-side metadata support. Toolsets version the **surface** (the set an agent is allowed to see and call), which matches the reviewers' preference for higher-level contracts and directly addresses uncontrolled expansion without a package-manager dependency solver.
 
-Stability of member tool schemas is expressed as a **SHOULD** commitment on the Toolset version, enforced by publishing a new Toolset version when contracts break—not by hosting multiple SemVer'd implementations of the same tool name behind a constraint engine.
+Stability of member tool wire contracts is a publication discipline on the Toolset version (**SHOULD NOT** break in place; breaking changes **MUST** mint a new **MAJOR** Toolset version), not a constraint engine hosting multiple SemVer'd implementations of the same tool name.
 
 ### Why per-request pins instead of session-active Toolsets?
 
@@ -348,7 +364,7 @@ Ranges invite resolution rules (latest matching, pre-release policy, conflict be
 
 SEP-1300 / SEP-2084 proposed general-purpose groups/tags and filter syntax for organizing primitives. This SEP does not introduce a taxonomy DSL. It introduces a **versioned pin contract** whose primary purpose is stability and governance of the tool surface exposed to agents.
 
-### Prior art
+### Prior Art
 
 Product MCP servers already expose informal "toolsets" as enablement bundles. Standardizing discovery (`toolsets/list`) and pin semantics makes those patterns interoperable across clients and servers.
 
@@ -376,6 +392,13 @@ A reference implementation is required before this SEP can advance to Final, per
 - **Python SDK** (`Toolsets` extension): [palmertron/python-sdk@feature/toolset-versioning](https://github.com/palmertron/python-sdk/tree/feature/toolset-versioning) — advertises `io.modelcontextprotocol/toolsets`, serves `toolsets/list`, filters pinned `tools/list` / `tools/call`, with coverage in `tests/server/test_toolsets.py`.
 - **E2E demo** (Streamable HTTP server + pinning clients): [palmertron/mcp-toolset-example](https://github.com/palmertron/mcp-toolset-example) — publishes concurrent `core-ops` versions (`1.0.0` / `1.1.0` / `2.0.0`); `client/verify.py` asserts pin membership and `tool_not_in_toolset` without an LLM; a CLI agent pins `core-ops@1.1.0` for interactive demos.
 
+### SDK Impact
+
+Official SDKs typically ship both MCP server and MCP client libraries. Expected impact for this extension:
+
+- **Server libraries:** opt-in enablement (disabled by default per [SEP-2133](./2133-extensions.md)); include the extension in server capabilities when enabled; implement `toolsets/list`; enforce optional `toolset` on `tools/list` / `tools/call`.
+- **Client libraries:** include the extension in client capabilities at initialize when the host will pin; pass `toolset` on `tools/list` / `tools/call`; when caching pinned `tools/list` results, include `(name, version)` in the cache key (see Caching).
+
 ## Performance Implications
 
 - `toolsets/list` is a small additional list endpoint; servers with few Toolset versions should remain negligible in cost.
@@ -394,6 +417,7 @@ Interoperable implementations **SHOULD** cover:
 6. `tools/call` for a non-member under a pin errors; member succeeds.
 7. Immutability: republishing the same `(name, version)` with different membership is rejected or treated as a server bug in conformance tests.
 8. Concurrent Toolset versions: pinning `1.2.0` does not observe tools only added in `1.3.0`.
+9. Pinned `tools/list` omits membership names that have no registered tool (rather than failing the list).
 
 ## Alternatives Considered
 
@@ -406,9 +430,9 @@ Interoperable implementations **SHOULD** cover:
 ## Open Questions
 
 1. Should `tools/list_changed` (or subscription filters) be Toolset-scoped when a pin is active, or always describe the full server catalog?
-2. Should v1 allow an optional content `digest` on `Toolset` for supply-chain pinning of schema snapshots?
+2. Should v1 allow an optional content `digest` on `Toolset` covering membership and member tool descriptors (for supply-chain pinning of a Toolset snapshot)?
 3. Prefer extending `tools/list` params vs introducing `toolsets/select` (stateless handle returned)? Current draft prefers param-on-list/call for simplicity and sessionlessness.
-4. Numeric extension error codes: coordinate with SDK error registries when prototyping.
+4. How should extension-specific JSON-RPC error `code` integers be coordinated across official SDKs, given that `data.reason` is already the stable cross-implementation signal?
 
 ## Acknowledgments
 
