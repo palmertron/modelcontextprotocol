@@ -1,28 +1,17 @@
-# Model Context Protocol (MCP)
 
-_Just heard of MCP and not sure where to start? Check out our [documentation website](https://modelcontextprotocol.io)._
+# Model Context Protocol
 
-This repo contains the:
+Fork of the official Model Context Protocol specification and documentation.
 
-- MCP specification
-- MCP protocol schema
-- Official MCP documentation
+## Purpose
+Exploring the MCP standard to better understand and experiment with interoperable AI agent tool-calling and context management capabilities.
 
-The schema is [defined in TypeScript](schema/2025-11-25/schema.ts) first, but
-[made available as JSON Schema](schema/2025-11-25/schema.json) as well, for wider
-compatibility.
+## Current Focus
+- Studying the protocol specification
+- Testing implementations and extensions
+- Preparing for integration into agentic AI systems
 
-The official MCP documentation is built using Mintlify and available at
-[modelcontextprotocol.io](https://modelcontextprotocol.io).
+Original upstream repository: [modelcontextprotocol/modelcontextprotocol](https://github.com/modelcontextprotocol/modelcontextprotocol)
 
-## Authors
-
-The Model Context Protocol was created by David Soria Parra ([@dsp](https://github.com/dsp)) and Justin Spahr-Summers ([@jspahrsummers](https://github.com/jspahrsummers)).
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+---
+For more details on the core protocol, see the upstream project.
