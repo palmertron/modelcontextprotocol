@@ -198,7 +198,9 @@ interface ToolsetRef {
 }
 ```
 
-`tools/list`: when this extension is negotiated, request params **MAY** include:
+##### Request Parameter
+
+When this extension is negotiated, request params for both `tools/list` and `tools/call` **MAY** include a `toolset` field containing a `ToolsetRef`:
 
 ```json
 {
@@ -208,6 +210,8 @@ interface ToolsetRef {
   }
 }
 ```
+
+##### `tools/list` Behavior
 
 If `toolset` is present:
 
@@ -219,7 +223,7 @@ If `toolset` is present:
 
 If `toolset` is absent, behavior is unchanged from core MCP.
 
-`tools/call`: when this extension is negotiated, request params **MAY** include the same `toolset` field.
+##### `tools/call` Behavior
 
 If `toolset` is present:
 
