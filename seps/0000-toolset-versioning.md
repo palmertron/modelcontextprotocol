@@ -130,8 +130,6 @@ These rules apply to the Toolset package, not to individual tools:
 | Add tools in a new Toolset version (prior versions unchanged)                                               | **MINOR**                                                                                                                                           |
 | Metadata-only changes (`title`, `description`, `status`, `deprecationDate`) on a **new** publication        | **PATCH** (preferred) or republish metadata carefully; published `(name, version)` fields other than advisory metadata **MUST NOT** mutate in place |
 
-Note: because published `(name, version)` pairs are immutable, servers typically mint a new PATCH/MINOR/MAJOR version rather than editing an existing one.
-
 #### Operational Guidance
 
 Servers that publish Toolsets take on a small operational contract beyond today's flat tool list:
