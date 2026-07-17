@@ -7,7 +7,7 @@
 - **Sponsor**: None (seeking sponsor)
 - **Extension Identifier**: `io.modelcontextprotocol/toolsets`
 - **PR**: [To be filled after PR creation]
-- **Related**: [SEP-2133](./2133-extensions.md) (Extensions), [SEP-2549](./2549-TTL-for-list-results.md) (TTL for list results), [SEP-2567](./2567-sessionless-mcp.md) (Sessionless MCP); prior proposals [SEP-1575](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1575) (Tool Semantic Versioning, dormant), [SEP-1300](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1300) / [SEP-2084](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2084) (tool groups / primitive grouping, rejected)
+- **Related**: [SEP-2133](./2133-extensions.md) (Extensions), [SEP-2575](./2575-stateless-mcp.md) (Stateless MCP), [SEP-2549](./2549-TTL-for-list-results.md) (TTL for list results), [SEP-2567](./2567-sessionless-mcp.md) (Sessionless MCP); prior proposals [SEP-1575](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1575) (Tool Semantic Versioning, dormant), [SEP-1300](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1300) / [SEP-2084](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2084) (tool groups / primitive grouping, rejected)
 
 ## Abstract
 
@@ -15,7 +15,7 @@ This SEP proposes an optional MCP extension that introduces **Toolsets**: named,
 
 When a Toolset is pinned, the server returns only member tools from `tools/list` and rejects `tools/call` for tools outside that membership. This gives hosts a predictable contract for dynamic discovery without requiring per-tool semantic versioning or session-scoped state.
 
-The design is backward-compatible: clients that omit Toolset parameters continue to see the full flat tool list. The extension follows [SEP-2133](./2133-extensions.md) capability negotiation and is intended to incubate outside the core protocol.
+The design is backward-compatible within MCP protocol revision `2026-07-28` and later: clients that omit Toolset parameters continue to see the full flat tool list. The extension uses the extension framework introduced by [SEP-2133](./2133-extensions.md) with the stateless capability advertisement model introduced by [SEP-2575](./2575-stateless-mcp.md), and is intended to incubate outside the core protocol.
 
 ## Motivation
 
@@ -41,19 +41,46 @@ This extension is identified as: `io.modelcontextprotocol/toolsets`.
 
 ### Capability Negotiation
 
-Clients and servers advertise support via the `extensions` map defined in [SEP-2133](./2133-extensions.md).
+This extension targets MCP protocol revision `2026-07-28` and later. It does not define support for earlier protocol revisions.
+
+[SEP-2133](./2133-extensions.md) introduced the `extensions` capability map and originally described exchanging it during `initialize`. [SEP-2575](./2575-stateless-mcp.md) removes `initialize` for `2026-07-28` and later, replacing that handshake with per-request client capabilities and server capability discovery through `server/discover`. This SEP is specified in preparation for that protocol revision and intentionally supports only the SEP-2575 model, not SEP-2133's initialization-based negotiation model.
+
+Clients advertise support on each extension-dependent request:
 
 ```json
 {
-  "extensions": {
-    "io.modelcontextprotocol/toolsets": {}
+  "_meta": {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": {
+      "name": "example-client",
+      "version": "1.0.0"
+    },
+    "io.modelcontextprotocol/clientCapabilities": {
+      "extensions": {
+        "io.modelcontextprotocol/toolsets": {}
+      }
+    }
+  }
+}
+```
+
+Servers advertise support in the capabilities returned by `server/discover`:
+
+```json
+{
+  "capabilities": {
+    "extensions": {
+      "io.modelcontextprotocol/toolsets": {}
+    }
   }
 }
 ```
 
 No extension-specific settings are required for v1; an empty object indicates support.
 
-A client that wishes to pin Toolsets **MUST** advertise this extension in client capabilities at initialize. A server that exposes `toolsets/list` or honors Toolset parameters on `tools/list` / `tools/call` **MUST** advertise this extension in server capabilities. Advertising declares extension support; the pin itself is a separate per-request `toolset` parameter (see section on Toolset Selection below).
+A client **MUST** include this extension in `params._meta["io.modelcontextprotocol/clientCapabilities"].extensions` on every `toolsets/list` request and every `tools/list` or `tools/call` request carrying a Toolset pin. A server that exposes `toolsets/list` or honors Toolset parameters on `tools/list` / `tools/call` **MUST** advertise this extension in the server capabilities returned by `server/discover`.
+
+Before invoking `toolsets/list` or sending a Toolset pin, a client **MUST** confirm that the server advertised this extension. A server supporting this extension that receives an extension-dependent request without the corresponding per-request client capability **MUST** return `MissingRequiredClientCapabilityError` (`-32021`). Advertising declares extension support; the pin itself is a separate per-request `toolset` parameter (see section on Toolset Selection below).
 
 Servers **MUST NOT** require this extension for basic tool use: omitting Toolset parameters **MUST** preserve today's full flat `tools/list` and unrestricted `tools/call` behavior (subject to ordinary authz).
 
@@ -200,7 +227,7 @@ interface ToolsetRef {
 
 ##### Request Parameter
 
-When this extension is negotiated, request params for both `tools/list` and `tools/call` **MAY** include a `toolset` field containing a `ToolsetRef`:
+After confirming server support and advertising client support on the request, request params for both `tools/list` and `tools/call` **MAY** include a `toolset` field containing a `ToolsetRef`:
 
 ```json
 {
@@ -357,7 +384,7 @@ Stability of member tool wire contracts is a publication discipline on the Tools
 - works for hosts that create a connection per call;
 - makes the pin auditable in logs without reconstructing session state.
 
-Per-request selection does not prevent a host from configuring an exact Toolset pin per server as an application-level default and automatically including it on both `tools/list` and `tools/call` after negotiating the extension.
+Per-request selection does not prevent a host from configuring an exact Toolset pin per server as an application-level default and automatically including it on both `tools/list` and `tools/call` after confirming server support.
 
 ### Why exact versions only in v1?
 
@@ -373,12 +400,14 @@ Product MCP servers already expose informal "toolsets" as enablement bundles. St
 
 ## Backward Compatibility
 
-Fully backward-compatible:
+Backward-compatible within MCP protocol revision `2026-07-28` and later:
 
 - Clients and servers that ignore this extension behave exactly as today.
-- Presence of Toolset fields on requests is optional and gated by extension negotiation.
+- Presence of Toolset fields on requests is optional and gated by per-request capability advertisement.
 - No changes to the core meaning of unversioned `tools/list` / `tools/call`.
 - Existing tools require no schema changes to be included in a Toolset.
+
+This extension does not define Toolset support for `2025-11-25` or earlier protocol revisions, which use the initialization handshake superseded by SEP-2575.
 
 ## Security Implications
 
@@ -400,7 +429,7 @@ A reference implementation is required before this SEP can advance to Final, per
 Official SDKs typically provide both MCP client and server libraries. Expected impact:
 
 - **Server libraries:** support opt-in enablement (disabled by default per [SEP-2133](./2133-extensions.md)); advertise the extension in server capabilities when enabled; implement `toolsets/list`; filter `tools/list` and enforce membership on `tools/call` when a `toolset` is supplied.
-- **Client libraries:** advertise the extension in client capabilities during initialization when the host intends to use Toolset pins; pass `toolset` on `tools/list` and `tools/call`; include `(name, version)` in the cache key for pinned `tools/list` results (see Caching).
+- **Client libraries:** discover server support through `server/discover`; advertise the extension in per-request client capabilities when listing Toolsets or using a pin; pass `toolset` on `tools/list` and `tools/call`; include `(name, version)` in the cache key for pinned `tools/list` results (see Caching).
 
 ## Performance Implications
 
@@ -412,7 +441,7 @@ Official SDKs typically provide both MCP client and server libraries. Expected i
 
 Interoperable implementations **SHOULD** cover:
 
-1. Advertise/negotiate `io.modelcontextprotocol/toolsets`.
+1. Advertise `io.modelcontextprotocol/toolsets` through `server/discover` and per-request client capabilities; reject extension-dependent requests lacking client advertisement with `-32021`.
 2. `toolsets/list` returns published Toolsets; filters by `name` / `status`.
 3. `tools/list` without `toolset` returns the full tool list.
 4. `tools/list` with a valid pin returns exactly the target toolset version membership.
