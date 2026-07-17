@@ -139,34 +139,39 @@ interface Toolset {
 
 #### Immutability
 
+This extension distinguishes mechanically enforced selection from publisher conformance. The protocol mechanically resolves an exact `(name, version)`, filters `tools/list` by that Toolset's membership, and rejects `tools/call` for names outside that membership. Compatibility between Toolset versions is a guarantee made by the publisher. This extension does not snapshot tool descriptors, require version-specific implementations, or prevent a server from publishing a non-conformant change. A publisher that violates the requirements below is non-conformant with this extension.
+
 For a given `(name, version)`:
 
 1. The `tools` membership **MUST NOT** change after publication.
-2. Servers **SHOULD NOT** change a member tool's wire contract for the lifetime of that Toolset version. A wire-contract change includes renaming the tool, changing `inputSchema` shape or requiredness in a way that invalidates existing valid arguments, or changing documented success semantics of the tool's result.
+2. While the Toolset version remains published, the server **MUST NOT** introduce a breaking change to a member tool's wire contract. Breaking changes include renaming the tool; changing `inputSchema` in a way that rejects previously valid arguments; adding runtime validation that rejects previously valid arguments even when the schema is unchanged; changing `outputSchema` incompatibly; returning content that no longer conforms to the prior output contract; or changing documented result or content semantics in a way that invalidates existing consumers.
 3. Changing membership or a member tool's wire contract while retaining the same `(name, version)` **violates this extension's SemVer intent**. Such changes **MUST** be published as a **new** Toolset version: **MINOR** when only adding tools to the surface; **MAJOR** when removing tools or breaking contracts of existing members. Servers **MAY** continue to serve prior versions concurrently.
 
-This extension does **not** require servers to host multiple implementations of the same tool name. Schema and semantics permanence is a **publication discipline** tied to Toolset versions, not a per-tool version registry. Hosts that need a cryptographic freeze of Toolset membership and member tool descriptors should consider a future content `digest` (see Open Questions).
+Schema and semantics compatibility is a **publication discipline** tied to Toolset versions, not a per-tool version registry. Hosts that need a cryptographically verifiable snapshot of Toolset membership and member tool descriptors should consider a future content `digest` (see Open Questions).
 
 #### SemVer Rules for Toolset Versions
 
 These rules apply to the Toolset package, not to individual tools:
 
-| Change                                                                                                      | Version impact                                                 |
-| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| Remove a tool from membership, or intentionally break a member tool contract while retiring the old surface | **MAJOR**                                                      |
-| Add tools in a new Toolset version (prior versions unchanged)                                               | **MINOR**                                                      |
-| Change `title` or `description`                                                                              | **PATCH**; servers **SHOULD NOT** mutate these fields in place |
-| Change `status` or `deprecationDate`                                                                         | None; lifecycle metadata **MAY** mutate in place               |
+| Change                                                                                                                                           | Version impact                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| Remove a tool from membership, or intentionally break a member tool contract while retiring the old surface                                      | **MAJOR**                                                      |
+| Add tools while retaining every member and preserving the contracts of carried-forward tools from earlier versions in the same major family      | **MINOR**                                                      |
+| Change `title` or `description` without changing membership or breaking member contracts                                                         | **PATCH**; servers **SHOULD NOT** mutate these fields in place |
+| Change `status` or `deprecationDate`                                                                                                              | None; lifecycle metadata **MAY** mutate in place               |
+
+A Toolset version with greater SemVer precedence within the same major family **MUST** retain every tool from lower versions in that family and **MUST NOT** introduce breaking contract changes to carried-forward tools. These are publisher conformance requirements; clients are not required to compare versions or validate them.
 
 #### Operational Guidance
 
 Servers that publish Toolsets take on a small operational contract beyond today's flat tool list:
 
 1. Servers **MAY** serve multiple versions of the same Toolset name concurrently. Clients select with an exact pin; the server does not resolve ranges in v1.
-2. Before removing a version from publication, servers **SHOULD** mark it `deprecated` and **MAY** set `deprecationDate` so hosts can migrate pins.
-3. Servers **MAY** later omit a `(name, version)` from `toolsets/list`. Clients still pinned to that pair then receive `unknown_toolset` on pinned `tools/list` / `tools/call`.
-4. This SEP does **not** require unbounded retention of every historical Toolset version. Retention and retirement are operator policy. Servers **SHOULD** document which versions they commit to keep available for consumers.
-5. Storage and replication of published membership records are implementation details; the normative requirement is only that a published `(name, version)` keep a fixed `tools` membership as long as it appears in the response from `toolsets/list`.
+2. If a server continues publishing an older Toolset version after introducing a breaking change in a new **MAJOR** version, it **MUST** continue honoring the older version's membership and member contracts. This extension does not prescribe whether the server uses separate implementations, compatibility adapters, version-aware routing, or another internal mechanism. A server unable to preserve the older contract must retire that version.
+3. Before removing a version from publication, servers **SHOULD** mark it `deprecated` and **MAY** set `deprecationDate` so hosts can migrate pins.
+4. Servers **MAY** later omit a `(name, version)` from `toolsets/list`. Clients still pinned to that pair then receive `unknown_toolset` on pinned `tools/list` / `tools/call`.
+5. This SEP does **not** require unbounded retention of every historical Toolset version. Retention and retirement are operator policy. Servers **SHOULD** document which versions they commit to keep available for consumers.
+6. Storage and replication of published membership records are implementation details; the normative requirement is only that a published `(name, version)` keep a fixed `tools` membership as long as it appears in the response from `toolsets/list`.
 
 ### Methods
 
@@ -374,7 +379,7 @@ Toolsets are optional production-governance machinery. [SEP-2133](./2133-extensi
 
 Per-tool SemVer with caret/tilde resolution (SEP-1575) did not land and faced substantial review pushback: coupled tools, multi-version list ambiguity, and weak client-side metadata support. Toolsets version the **surface** (the set an agent is allowed to see and call), which matches the reviewers' preference for higher-level contracts and directly addresses uncontrolled expansion without a package-manager dependency solver.
 
-Stability of member tool wire contracts is a publication discipline on the Toolset version (**SHOULD NOT** break in place; breaking changes **MUST** mint a new **MAJOR** Toolset version), not a constraint engine hosting multiple SemVer'd implementations of the same tool name.
+The protocol mechanically enforces Toolset membership, while stability of member tool wire contracts is a publisher guarantee on the Toolset version. Breaking contracts **MUST NOT** be published in place and **MUST** mint a new **MAJOR** Toolset version. The extension does not prescribe a constraint engine or how a server internally preserves contracts for concurrently published versions.
 
 ### Why per-request pins instead of session-active Toolsets?
 
@@ -444,12 +449,14 @@ Interoperable implementations **SHOULD** cover:
 1. Advertise `io.modelcontextprotocol/toolsets` through `server/discover` and per-request client capabilities; reject extension-dependent requests lacking client advertisement with `-32021`.
 2. `toolsets/list` returns published Toolsets; filters by `name` / `status`.
 3. `tools/list` without `toolset` returns the full tool list.
-4. `tools/list` with a valid pin returns exactly the target toolset version membership.
+4. `tools/list` with a valid pin returns only registered tools from the target Toolset version's membership.
 5. `tools/list` / `tools/call` with unknown `(name, version)` errors.
 6. `tools/call` for a non-member under a pin errors; member succeeds.
 7. Immutability: republishing the same `(name, version)` with different membership is rejected or treated as a server bug in conformance tests.
 8. Concurrent Toolset versions: pinning `1.2.0` does not observe tools only added in `1.3.0`.
 9. Pinned `tools/list` omits membership names that have no registered tool (rather than failing the list).
+
+These cases test the mechanically enforced protocol behavior. Publisher test suites **SHOULD** additionally verify that versions within a major family retain prior membership and preserve the contracts of carried-forward tools. Generic protocol conformance tests cannot determine whether arbitrary implementation behavior or content semantics remain compatible.
 
 ## Alternatives Considered
 
