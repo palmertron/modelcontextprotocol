@@ -395,12 +395,12 @@ A reference implementation is required before this SEP can advance to Final, per
 - **Python SDK** (`Toolsets` extension): [palmertron/python-sdk@feature/toolset-versioning](https://github.com/palmertron/python-sdk/tree/feature/toolset-versioning) — advertises `io.modelcontextprotocol/toolsets`, serves `toolsets/list`, filters pinned `tools/list` / `tools/call`, with coverage in `tests/server/test_toolsets.py`.
 - **E2E demo** (Streamable HTTP server + pinning clients): [palmertron/mcp-toolset-example](https://github.com/palmertron/mcp-toolset-example) — publishes concurrent `core-ops` versions (`1.0.0` / `1.1.0` / `2.0.0`); `client/verify.py` asserts pin membership and `tool_not_in_toolset` without an LLM; a CLI agent pins `core-ops@1.1.0` for interactive demos.
 
-### SDK Impact
+## SDK Impact
 
-Official SDKs typically ship both MCP server and MCP client libraries. Expected impact for this extension:
+Official SDKs typically provide both MCP client and server libraries. Expected impact:
 
-- **Server libraries:** opt-in enablement (disabled by default per [SEP-2133](./2133-extensions.md)); include the extension in server capabilities when enabled; implement `toolsets/list`; enforce optional `toolset` on `tools/list` / `tools/call`.
-- **Client libraries:** include the extension in client capabilities at initialize when the host will pin; pass `toolset` on `tools/list` / `tools/call`; when caching pinned `tools/list` results, include `(name, version)` in the cache key (see Caching).
+- **Server libraries:** support opt-in enablement (disabled by default per [SEP-2133](./2133-extensions.md)); advertise the extension in server capabilities when enabled; implement `toolsets/list`; filter `tools/list` and enforce membership on `tools/call` when a `toolset` is supplied.
+- **Client libraries:** advertise the extension in client capabilities during initialization when the host intends to use Toolset pins; pass `toolset` on `tools/list` and `tools/call`; include `(name, version)` in the cache key for pinned `tools/list` results (see Caching).
 
 ## Performance Implications
 
@@ -434,7 +434,7 @@ Interoperable implementations **SHOULD** cover:
 
 1. Should `tools/list_changed` (or subscription filters) be Toolset-scoped when a pin is active, or always describe the full server catalog?
 2. Should v1 allow an optional content `digest` on `Toolset` covering membership and member tool descriptors (for supply-chain pinning of a Toolset snapshot)?
-3. Prefer extending `tools/list` params vs introducing `toolsets/select` (stateless handle returned)? Current draft prefers param-on-list/call for simplicity and sessionlessness.
+3. Prefer passing `ToolsetRef` directly on `tools/list` and `tools/call` versus introducing `toolsets/select`, which returns a handle to pass on subsequent requests? Both approaches are compatible with sessionless MCP. The current draft prefers direct parameters because exact Toolset references are already compact identifiers and avoid an additional round trip and handle-lifecycle semantics.
 4. How should extension-specific JSON-RPC error `code` integers be coordinated across official SDKs, given that `data.reason` is already the stable cross-implementation signal?
 
 ## Acknowledgments
