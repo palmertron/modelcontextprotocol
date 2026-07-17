@@ -357,7 +357,7 @@ Stability of member tool wire contracts is a publication discipline on the Tools
 - works for hosts that create a connection per call;
 - makes the pin auditable in logs without reconstructing session state.
 
-Hosts remain free to configure a preferred Toolset once in application config and attach it automatically.
+Per-request selection does not prevent a host from configuring an exact Toolset pin per server as an application-level default and automatically including it on both `tools/list` and `tools/call` after negotiating the extension.
 
 ### Why exact versions only in v1?
 
