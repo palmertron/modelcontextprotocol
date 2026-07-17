@@ -124,11 +124,12 @@ This extension does **not** require servers to host multiple implementations of 
 
 These rules apply to the Toolset package, not to individual tools:
 
-| Change                                                                                                      | Version impact                                                                                                                                      |
-| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Remove a tool from membership, or intentionally break a member tool contract while retiring the old surface | **MAJOR**                                                                                                                                           |
-| Add tools in a new Toolset version (prior versions unchanged)                                               | **MINOR**                                                                                                                                           |
-| Metadata-only changes (`title`, `description`, `status`, `deprecationDate`) on a **new** publication        | **PATCH** (preferred) or republish metadata carefully; published `(name, version)` fields other than advisory metadata **MUST NOT** mutate in place |
+| Change                                                                                                      | Version impact                                                 |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Remove a tool from membership, or intentionally break a member tool contract while retiring the old surface | **MAJOR**                                                      |
+| Add tools in a new Toolset version (prior versions unchanged)                                               | **MINOR**                                                      |
+| Change `title` or `description`                                                                              | **PATCH**; servers **SHOULD NOT** mutate these fields in place |
+| Change `status` or `deprecationDate`                                                                         | None; lifecycle metadata **MAY** mutate in place               |
 
 #### Operational Guidance
 
