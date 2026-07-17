@@ -1,17 +1,19 @@
 # SEP-XXXX: Toolset Versioning
 
-- **Status**: Draft
+- **Status**: Awaiting Sponsor
 - **Type**: Extensions Track
 - **Created**: 2026-07-14
 - **Author(s)**: Matt Palmer (@palmertron)
 - **Sponsor**: None (seeking sponsor)
+- **Working Group**: TBD (seeking WG ownership per [SEP-2133](./2133-extensions.md))
+- **Extension Maintainers**: TBD (seeking appointment)
 - **Extension Identifier**: `io.modelcontextprotocol/toolsets`
 - **PR**: [To be filled after PR creation]
 - **Related**: [SEP-2133](./2133-extensions.md) (Extensions), [SEP-2575](./2575-stateless-mcp.md) (Stateless MCP), [SEP-2549](./2549-TTL-for-list-results.md) (TTL for list results), [SEP-2567](./2567-sessionless-mcp.md) (Sessionless MCP); prior proposals [SEP-1575](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1575) (Tool Semantic Versioning, dormant), [SEP-1300](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1300) / [SEP-2084](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/2084) (tool groups / primitive grouping, rejected)
 
 ## Abstract
 
-This SEP proposes an optional MCP extension that introduces **Toolsets**: named, semantically versioned, immutable capability surfaces. A Toolset is a fixed membership of tool names. Clients discover Toolsets via `toolsets/list` and pin a specific `(name, version)` on `tools/list` and `tools/call` requests.
+This SEP proposes an optional MCP extension that introduces **Toolsets**: named, semantically versioned capability surfaces with a fixed tool-name membership. Clients discover Toolsets via `toolsets/list` and pin a specific `(name, version)` on `tools/list` and `tools/call` requests. Membership pins are enforced mechanically; cross-version wire-contract stability is a publisher conformance guarantee (see Immutability).
 
 When a Toolset is pinned, the server returns only member tools from `tools/list` and rejects `tools/call` for tools outside that membership. This gives hosts a predictable contract for dynamic discovery without requiring per-tool semantic versioning or session-scoped state.
 
@@ -19,7 +21,7 @@ The design is backward-compatible within MCP protocol revision `2026-07-28` and 
 
 ## Motivation
 
-Many MCP hosts discover tools at runtime via `tools/list` and then let the model choose which tools to invoke. That flexibility is valuable, but it creates a production failure mode: when a server adds, removes, or substantially changes tools, agent behavior can shift across many clients with no explicit opt-in from client operators. Call this **uncontrolled tool-surface expansion** (sometimes informally described as unexpected tools appearing in the agent's context and altering selection).
+Many MCP hosts discover tools at runtime via `tools/list` and then let the model choose which tools to invoke. That flexibility is valuable, but it creates a production failure mode: when a server adds, removes, or substantially changes tools, agent behavior can shift across many clients with no explicit opt-in from client operators — **uncontrolled tool-surface expansion**, where unexpected tools enter the agent's context and alter selection.
 
 [SEP-1575](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1575) attempted to address related instability with per-tool Semantic Versioning and client `tool_requirements` constraints. That proposal is **dormant** and never landed in the schema. Reviewer feedback favored versioning at a higher grain than individual tools (server- or bundle-level contracts), noted that multi-version tool registries complicate `tools/list`, and observed that much of the client ecosystem was not ready for constraint-resolution semantics.
 
@@ -93,7 +95,8 @@ Servers **MUST NOT** require this extension for basic tool use: omitting Toolset
 type ToolsetStatus = "stable" | "deprecated" | "experimental";
 
 /**
- * A named, versioned, immutable capability surface.
+ * A named, versioned capability surface with fixed tool-name membership.
+ * Lifecycle fields such as `status` and `deprecationDate` MAY update in place.
  */
 interface Toolset {
   /**
@@ -104,7 +107,8 @@ interface Toolset {
 
   /**
    * MUST be a valid Semantic Versioning 2.0.0 version.
-   * Once published, the pair (name, version) is immutable.
+   * Once published, membership for this (name, version) MUST NOT change;
+   * the identity MUST NOT be reused for different membership or member contracts.
    */
   version: string;
 
@@ -341,6 +345,33 @@ The following are explicitly out of scope for this SEP:
 
 A client pinned to `core-ops@1.2.0` never sees `analyze_report`, even after `1.3.0` is published.
 
+#### Paginated `toolsets/list` continuation
+
+Filters apply before pagination. A continuation may omit filters; the cursor remains bound to the query that produced it:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "toolsets/list",
+  "params": {
+    "name": "core-ops",
+    "status": "stable"
+  }
+}
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "toolsets/list",
+  "params": {
+    "cursor": "opaque-server-cursor"
+  }
+}
+```
+
 #### Pin on list and call
 
 ```json
@@ -461,7 +492,7 @@ These cases test the mechanically enforced protocol behavior.
 
 ### Publisher Conformance Tests
 
-Publisher test suites **SHOULD** verify valid SemVer syntax, permanent non-reuse of publication identities, and that versions within a major family retain prior membership and preserve the contracts of carried-forward tools. Generic protocol conformance tests cannot determine whether arbitrary implementation behavior or content semantics remain compatible.
+These checks are separate from generic protocol conformance and SDK wire-protocol suites. Publishers **SHOULD** cover them in their own automated tests or release validation: valid SemVer syntax, permanent non-reuse of publication identities, and that versions within a major family retain prior membership and preserve the contracts of carried-forward tools. Generic protocol conformance tests cannot determine whether arbitrary implementation behavior or content semantics remain compatible.
 
 ## Alternatives Considered
 
@@ -475,9 +506,8 @@ Publisher test suites **SHOULD** verify valid SemVer syntax, permanent non-reuse
 
 1. Should `tools/list_changed` (or subscription filters) be Toolset-scoped when a pin is active, or always describe the full server catalog?
 2. Should v1 allow an optional content `digest` on `Toolset` covering membership and member tool descriptors (for supply-chain pinning of a Toolset snapshot)?
-3. Prefer passing `ToolsetRef` directly on `tools/list` and `tools/call` versus introducing `toolsets/select`, which returns a handle to pass on subsequent requests? Both approaches are compatible with sessionless MCP. The current draft prefers direct parameters because exact Toolset references are already compact identifiers and avoid an additional round trip and handle-lifecycle semantics.
-4. How should extension-specific JSON-RPC error `code` integers be coordinated across official SDKs, given that `data.reason` is already the stable cross-implementation signal?
-5. Should a future revision require server SDKs to mechanically validate Semantic Versioning 2.0.0 syntax when a Toolset is published, or should syntactic validity remain solely a publisher conformance responsibility? Regardless, should clients continue treating received version strings as opaque exact identifiers?
+3. How should extension-specific JSON-RPC error `code` integers be coordinated across official SDKs, given that `data.reason` is already the stable cross-implementation signal?
+4. Should a future revision require server SDKs to mechanically validate Semantic Versioning 2.0.0 syntax when a Toolset is published, or should syntactic validity remain solely a publisher conformance responsibility? Regardless, should clients continue treating received version strings as opaque exact identifiers?
 
 ## Acknowledgments
 
