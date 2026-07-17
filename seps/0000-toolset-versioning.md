@@ -237,7 +237,7 @@ Hosts that pin a Toolset **SHOULD** pass the same `toolset` on both `tools/list`
 
 ### Caching
 
-Pinned `tools/list` responses **SHOULD** be cacheable under [SEP-2549](./2549-TTL-for-list-results.md). Clients **MUST** include the Toolset `(name, version)` in the cache key when `toolset` was supplied. Toolset pins **MUST NOT** reuse an unpinned cache entry; distinct pins MUST use distinct cache keys (implementations MAY dedupe identical payloads by value).
+[SEP-2549](./2549-TTL-for-list-results.md) caching semantics apply to pinned `tools/list` responses. As specified by SEP-2549, each page of a paginated response is independently cacheable and may have its own freshness metadata. Clients **MUST** treat responses that differ by Toolset selection, cursor, or any other response-varying request or context dimension as distinct cache variants. In particular, an unpinned request and requests for different Toolset `(name, version)` pairs **MUST** remain distinct. Implementations **MAY** deduplicate identical payload storage, provided that freshness and invalidation semantics remain correct for each variant.
 
 ### Error Handling
 
