@@ -155,12 +155,12 @@ Schema and semantics compatibility is a **publication discipline** tied to Tools
 
 These rules apply to the Toolset package, not to individual tools. Publishers **MUST** use valid Semantic Versioning 2.0.0 version strings. Syntactic validity is a publisher conformance requirement in v1; this extension does not require SDKs to validate version strings mechanically. Servers **MAY** publish versions out of SemVer precedence order, such as a maintenance release for an older major version. SemVer precedence expresses compatibility relationships, not publication chronology.
 
-| Change                                                                                                                                           | Version impact                                                 |
-| ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| Remove a tool from membership, or intentionally break a member tool contract while retiring the old surface                                      | **MAJOR**                                                      |
-| Add tools while retaining every member and preserving the contracts of carried-forward tools from earlier versions in the same major family      | **MINOR**                                                      |
-| Change `title` or `description` without changing membership or breaking member contracts                                                         | **PATCH**; servers **SHOULD NOT** mutate these fields in place |
-| Change `status` or `deprecationDate`                                                                                                              | None; lifecycle metadata **MAY** mutate in place               |
+| Change                                                                                                                                      | Version impact                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Remove a tool from membership, or intentionally break a member tool contract while retiring the old surface                                 | **MAJOR**                                                      |
+| Add tools while retaining every pre-existing member and preserving the contracts of carried-forward tools from earlier versions in the same major family | **MINOR**                                                      |
+| Change `title` or `description` without changing membership or breaking member contracts                                                    | **PATCH**; servers **SHOULD NOT** mutate these fields in place |
+| Change `status` or `deprecationDate`                                                                                                        | None; lifecycle metadata **MAY** mutate in place               |
 
 A Toolset version with greater SemVer precedence within the same major family **MUST** retain every tool from lower versions in that family and **MUST NOT** introduce breaking contract changes to carried-forward tools. These are publisher conformance requirements; clients are not required to compare versions or validate them.
 
@@ -208,6 +208,8 @@ interface ListToolsetsResult extends PaginatedResult {
 Servers supporting this extension **MUST** implement `toolsets/list`.
 
 Result order is **unspecified** unless the server documents one. Servers **SHOULD** keep order stable across pages for a given filter set so pagination is deterministic. Servers **MAY** list newest SemVer first for a given `name`.
+
+The `name` and `status` filters apply **before** pagination. A `nextCursor` continues the same filtered query and therefore binds the filters from the request that produced it. A continuation request **MAY** omit `name` and `status`; if it repeats either filter, the value **MUST** match the cursor's bound value. A server **MUST** reject conflicting filters or an invalid cursor with `InvalidParamsError` (`-32602`).
 
 #### Toolset Selection on `tools/list` and `tools/call`
 
@@ -422,15 +424,15 @@ This extension does not define Toolset support for `2025-11-25` or earlier proto
 
 A reference implementation is required before this SEP can advance to Final, per SEP guidelines and [SEP-2484](./2484-conformance-tests-required-for-final-seps.md) expectations for protocol changes. That reference implementation is provided at the links below.
 
-- **Python SDK** (`Toolsets` extension): [palmertron/python-sdk@feature/toolset-versioning](https://github.com/palmertron/python-sdk/tree/feature/toolset-versioning) — advertises `io.modelcontextprotocol/toolsets`, serves `toolsets/list`, filters pinned `tools/list` / `tools/call`, with coverage in `tests/server/test_toolsets.py`.
-- **E2E demo** (Streamable HTTP server + pinning clients): [palmertron/mcp-toolset-example](https://github.com/palmertron/mcp-toolset-example) — publishes concurrent `core-ops` versions (`1.0.0` / `1.1.0` / `2.0.0`); `client/verify.py` asserts pin membership and `tool_not_in_toolset` without an LLM; a CLI agent pins `core-ops@1.1.0` for interactive demos.
+- **Python SDK** (`Toolsets` extension): [palmertron/python-sdk@feature/toolset-versioning](https://github.com/palmertron/python-sdk/tree/feature/toolset-versioning) — advertises `io.modelcontextprotocol/toolsets`, serves paginated `toolsets/list`, filters pinned `tools/list` / `tools/call`, with coverage in `tests/server/test_toolsets.py`.
+- **E2E demo** (Streamable HTTP server + pinning clients): [palmertron/mcp-toolset-example](https://github.com/palmertron/mcp-toolset-example) — publishes concurrent `core-ops` versions (`1.0.0` / `1.1.0` / `2.0.0`) plus a separate `pagination-demo` family for `toolsets/list` paging; `client/verify.py` asserts pin membership and `tool_not_in_toolset` without an LLM; a CLI agent pins `core-ops@1.1.0` for interactive demos.
 
 ## SDK Impact
 
 Official SDKs typically provide both MCP client and server libraries. Expected impact:
 
-- **Server libraries:** support opt-in enablement (disabled by default per [SEP-2133](./2133-extensions.md)); advertise the extension in server capabilities when enabled; implement `toolsets/list`; filter `tools/list` and enforce membership on `tools/call` when a `toolset` is supplied.
-- **Client libraries:** discover server support through `server/discover`; advertise the extension in per-request client capabilities when listing Toolsets or using a pin; pass `toolset` on `tools/list` and `tools/call`; include `(name, version)` in the cache key for pinned `tools/list` results (see Caching).
+- **Server libraries:** support opt-in enablement (disabled by default per [SEP-2133](./2133-extensions.md)); advertise the extension in server capabilities when enabled; implement paginated `toolsets/list` (filters before paging); filter `tools/list` and enforce membership on `tools/call` when a `toolset` is supplied.
+- **Client libraries:** discover server support through `server/discover`; advertise the extension in per-request client capabilities when listing Toolsets or using a pin; pass `toolset` on `tools/list` and `tools/call`; continue opaque `toolsets/list` cursors unchanged; include `(name, version)` in the cache key for pinned `tools/list` results (see Caching).
 
 ## Performance Implications
 
@@ -452,6 +454,8 @@ SDKs and hosts that implement this extension directly **SHOULD** cover:
 6. `tools/call` for a non-member under a pin errors; member succeeds.
 7. Concurrent declared memberships: when a tool is a member of `1.3.0` but not `1.2.0`, pinning `1.2.0` omits it from `tools/list` and rejects its invocation.
 8. Pinned `tools/list` omits membership names that have no registered tool (rather than failing the list).
+9. `toolsets/list` applies `name` / `status` filters before pagination; a continuation cursor pages that same filtered query.
+10. A continuation may omit filters or repeat matching filters; conflicting filters or an invalid cursor return `-32602`.
 
 These cases test the mechanically enforced protocol behavior.
 
