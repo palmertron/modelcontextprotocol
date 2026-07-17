@@ -103,7 +103,7 @@ interface Toolset {
   name: string;
 
   /**
-   * Semantic Version 2.0.0 of this Toolset publication.
+   * MUST be a valid Semantic Versioning 2.0.0 version.
    * Once published, the pair (name, version) is immutable.
    */
   version: string;
@@ -144,14 +144,16 @@ This extension distinguishes mechanically enforced selection from publisher conf
 For a given `(name, version)`:
 
 1. The `tools` membership **MUST NOT** change after publication.
-2. While the Toolset version remains published, the server **MUST NOT** introduce a breaking change to a member tool's wire contract. Breaking changes include renaming the tool; changing `inputSchema` in a way that rejects previously valid arguments; adding runtime validation that rejects previously valid arguments even when the schema is unchanged; changing `outputSchema` incompatibly; returning content that no longer conforms to the prior output contract; or changing documented result or content semantics in a way that invalidates existing consumers.
+2. While the Toolset version remains published, the server **MUST NOT** introduce a breaking change to a member tool's wire contract. Breaking changes include renaming the tool; changing `inputSchema` in a way that rejects previously valid arguments; adding runtime validation that rejects previously valid arguments even when the schema is unchanged; changing `outputSchema` incompatibly; returning content that no longer conforms to the prior output contract; or changing documented result or content semantics in a way that invalidates existing consumer usage patterns.
 3. Changing membership or a member tool's wire contract while retaining the same `(name, version)` **violates this extension's SemVer intent**. Such changes **MUST** be published as a **new** Toolset version: **MINOR** when only adding tools to the surface; **MAJOR** when removing tools or breaking contracts of existing members. Servers **MAY** continue to serve prior versions concurrently.
+
+Once published, a `(name, version)` identity **MUST NOT** be reused for different membership or member contracts, including after that identity has been retired from `toolsets/list`. This is a publisher conformance requirement; implementations are not required to retain tombstones or mechanically detect reuse.
 
 Schema and semantics compatibility is a **publication discipline** tied to Toolset versions, not a per-tool version registry. Hosts that need a cryptographically verifiable snapshot of Toolset membership and member tool descriptors should consider a future content `digest` (see Open Questions).
 
 #### SemVer Rules for Toolset Versions
 
-These rules apply to the Toolset package, not to individual tools:
+These rules apply to the Toolset package, not to individual tools. Publishers **MUST** use valid Semantic Versioning 2.0.0 version strings. Syntactic validity is a publisher conformance requirement in v1; this extension does not require SDKs to validate version strings mechanically. Servers **MAY** publish versions out of SemVer precedence order, such as a maintenance release for an older major version. SemVer precedence expresses compatibility relationships, not publication chronology.
 
 | Change                                                                                                                                           | Version impact                                                 |
 | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
@@ -171,7 +173,7 @@ Servers that publish Toolsets take on a small operational contract beyond today'
 3. Before removing a version from publication, servers **SHOULD** mark it `deprecated` and **MAY** set `deprecationDate` so hosts can migrate pins.
 4. Servers **MAY** later omit a `(name, version)` from `toolsets/list`. Clients still pinned to that pair then receive `unknown_toolset` on pinned `tools/list` / `tools/call`.
 5. This SEP does **not** require unbounded retention of every historical Toolset version. Retention and retirement are operator policy. Servers **SHOULD** document which versions they commit to keep available for consumers.
-6. Storage and replication of published membership records are implementation details; the normative requirement is only that a published `(name, version)` keep a fixed `tools` membership as long as it appears in the response from `toolsets/list`.
+6. Storage and replication of published membership records are implementation details. A server need not retain operational state for a retired version, but the publisher remains responsible for never reusing its `(name, version)` identity for different membership or member contracts.
 
 ### Methods
 
@@ -179,10 +181,10 @@ Servers that publish Toolsets take on a small operational contract beyond today'
 
 Lists Toolset versions published by the server.
 
-**Request params** (all optional):
+**Request params** (all extension-specific filters optional):
 
 ```typescript
-interface ListToolsetsRequestParams {
+interface ListToolsetsRequestParams extends PaginatedRequestParams {
   /**
    * If set, only Toolsets with this name.
    */
@@ -192,20 +194,14 @@ interface ListToolsetsRequestParams {
    * If set, only Toolsets with this status.
    */
   status?: ToolsetStatus;
-
-  /**
-   * Cursor for pagination, consistent with other list methods.
-   */
-  cursor?: string;
 }
 ```
 
 **Result**:
 
 ```typescript
-interface ListToolsetsResult {
+interface ListToolsetsResult extends PaginatedResult {
   toolsets: Toolset[];
-  nextCursor?: string;
 }
 ```
 
@@ -444,7 +440,9 @@ Official SDKs typically provide both MCP client and server libraries. Expected i
 
 ## Testing Plan
 
-Interoperable implementations **SHOULD** cover:
+### Protocol Implementation Tests
+
+SDKs and hosts that implement this extension directly **SHOULD** cover:
 
 1. Advertise `io.modelcontextprotocol/toolsets` through `server/discover` and per-request client capabilities; reject extension-dependent requests lacking client advertisement with `-32021`.
 2. `toolsets/list` returns published Toolsets; filters by `name` / `status`.
@@ -452,11 +450,14 @@ Interoperable implementations **SHOULD** cover:
 4. `tools/list` with a valid pin returns only registered tools from the target Toolset version's membership.
 5. `tools/list` / `tools/call` with unknown `(name, version)` errors.
 6. `tools/call` for a non-member under a pin errors; member succeeds.
-7. Immutability: republishing the same `(name, version)` with different membership is rejected or treated as a server bug in conformance tests.
-8. Concurrent Toolset versions: pinning `1.2.0` does not observe tools only added in `1.3.0`.
-9. Pinned `tools/list` omits membership names that have no registered tool (rather than failing the list).
+7. Concurrent declared memberships: when a tool is a member of `1.3.0` but not `1.2.0`, pinning `1.2.0` omits it from `tools/list` and rejects its invocation.
+8. Pinned `tools/list` omits membership names that have no registered tool (rather than failing the list).
 
-These cases test the mechanically enforced protocol behavior. Publisher test suites **SHOULD** additionally verify that versions within a major family retain prior membership and preserve the contracts of carried-forward tools. Generic protocol conformance tests cannot determine whether arbitrary implementation behavior or content semantics remain compatible.
+These cases test the mechanically enforced protocol behavior.
+
+### Publisher Conformance Tests
+
+Publisher test suites **SHOULD** verify valid SemVer syntax, permanent non-reuse of publication identities, and that versions within a major family retain prior membership and preserve the contracts of carried-forward tools. Generic protocol conformance tests cannot determine whether arbitrary implementation behavior or content semantics remain compatible.
 
 ## Alternatives Considered
 
@@ -472,6 +473,7 @@ These cases test the mechanically enforced protocol behavior. Publisher test sui
 2. Should v1 allow an optional content `digest` on `Toolset` covering membership and member tool descriptors (for supply-chain pinning of a Toolset snapshot)?
 3. Prefer passing `ToolsetRef` directly on `tools/list` and `tools/call` versus introducing `toolsets/select`, which returns a handle to pass on subsequent requests? Both approaches are compatible with sessionless MCP. The current draft prefers direct parameters because exact Toolset references are already compact identifiers and avoid an additional round trip and handle-lifecycle semantics.
 4. How should extension-specific JSON-RPC error `code` integers be coordinated across official SDKs, given that `data.reason` is already the stable cross-implementation signal?
+5. Should a future revision require server SDKs to mechanically validate Semantic Versioning 2.0.0 syntax when a Toolset is published, or should syntactic validity remain solely a publisher conformance responsibility? Regardless, should clients continue treating received version strings as opaque exact identifiers?
 
 ## Acknowledgments
 
